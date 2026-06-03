@@ -4,10 +4,10 @@ from openai import OpenAI
 import psycopg2
 from psycopg2.extras import DictCursor
 
-# Получение токенов и строки подключения из переменных окружения Railway
+# Получение токенов и строки подключения из переменных окружения
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
-DATABASE_URL = os.environ.get('DATABASE_URL')  # Railway автоматически предоставляет эту переменную при создании Postgres
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 # Инициализация бота и AI клиента
 bot = telebot.TeleBot(TOKEN)
@@ -16,13 +16,14 @@ ai_client = OpenAI(
     api_key=OPENROUTER_KEY,
 )
 
+# Системный промпт для ИИ
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": "Ты — опытный, дружелюбный и лаконичный ИИ-ассистент. Помогаешь программировать, отвечавать на вопросы и собираешь данные для обучения."
+    "content": "Ты — опытный, дружелюбный и лаконичный ИИ-ассистент. Помогаешь программировать, отвечаешь на вопросы и собираешь данные для обучения."
 }
 
 def init_db():
-    """Функция инициализации базы данных. Создает таблицу, если её нет."""
+    """Инициализация таблицы в PostgreSQL."""
     conn = psycopg2.connect(DATABASE_URL)
     with conn.cursor() as cursor:
         cursor.execute("""
@@ -39,13 +40,13 @@ def init_db():
     conn.close()
 
 def save_message(user_id, role, content):
-    """Сохраняет сообщение в базу данных для вечного хранения и обучения."""
+    """Сохранение сообщений в БД для истории и обучения."""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO chat_history (user_id, role, content) VALUES (%s, %s, %s)",
-                (user_id, role, content)
+                (user_id, role, str(content))
             )
             conn.commit()
         conn.close()
@@ -53,12 +54,11 @@ def save_message(user_id, role, content):
         print(f"Ошибка записи в БД: {e}")
 
 def get_context(user_id, limit=15):
-    """Получает последние N сообщений пользователя для передачи в LLM."""
+    """Получение контекста из БД для отправки в LLM."""
     messages = [SYSTEM_PROMPT]
     try:
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor(cursor_factory=DictCursor) as cursor:
-            # Берем последние сообщения, но сортируем их в хронологическом порядке
             cursor.execute("""
                 SELECT role, content FROM (
                     SELECT role, content, id FROM chat_history 
@@ -68,7 +68,8 @@ def get_context(user_id, limit=15):
             """, (user_id, limit))
             rows = cursor.fetchall()
             for row in rows:
-                messages.append({"role": row['role'], "content": row['content']})
+                if "--- Контекст очищен пользователем ---" not in row['content']:
+                    messages.append({"role": row['role'], "content": row['content']})
         conn.close()
     except Exception as e:
         print(f"Ошибка чтения из БД: {e}")
@@ -78,38 +79,35 @@ def get_context(user_id, limit=15):
 def send_welcome(message):
     user_id = message.from_user.id
     welcome_text = (
-        "Привет! Я запущен на Railway, подключен к базе данных PostgreSQL и готов к работе. 🚀\n\n"
-        "🧠 Все наши диалоги записываются базы данных. Это поможет обучить моего будущего агента!\n"
-        "🧹 Команда /clear — очистит текущий контекст нашей беседы (но старые логи останутся в базе для обучения)."
+        "Привет! Я запущен и готов к работе. 🚀\n\n"
+        "🧠 Все наши диалоги сохраняются в базу данных для обучения будущего агента.\n"
+        "🧹 Команда /clear — сбросить текущий контекст беседы."
     )
     bot.reply_to(message, welcome_text)
 
 @bot.message_handler(commands=['clear'])
 def clear_context(message):
     user_id = message.from_user.id
-    # Для сохранения истории обучения мы не удаляем строки из БД, 
-    # а просто вставляем маркер сброса контекста (опционально) или ничего не делаем.
-    # Чтобы очистить контекст для модели, мы можем просто записать системный промпт как новое начало.
     save_message(user_id, "system", "--- Контекст очищен пользователем ---")
-    bot.reply_to(message, "Контекст общения сброшен! Новые сообщения начнутся с чистого листа. 🧹")
+    bot.reply_to(message, "Контекст общения сброшен! Начинаем с чистого листа. 🧹")
 
 @bot.message_handler(func=lambda message: True)
 def ask_ai(message):
     user_id = message.from_user.id
     
-    # 1. Сразу сохраняем сообщение пользователя в БД (оно уже залогировано для обучения)
+    # 1. Сохраняем входящий запрос в БД
     save_message(user_id, "user", message.text)
     
-    # 2. Собираем контекст из базы данных для текущего запроса к ИИ
+    # 2. Собираем историю для ИИ
     history_context = get_context(user_id, limit=15)
 
     bot.send_chat_action(message.chat.id, 'typing')
     
     try:
-        # 3. Делаем запрос к нейросети
+        # 3. Запрос к OpenRouter
         completion = ai_client.chat.completions.create(
             extra_headers={
-                "HTTP-Referer": "https://railway.app",
+                "HTTP-Referer": "https://render.com",
                 "X-Title": "Telegram AI Dataset Bot",
             },
             model="meta-llama/llama-3-8b-instruct:free",
@@ -117,25 +115,42 @@ def ask_ai(message):
             timeout=25
         )
         
-        ai_text = completion.choices.message.content
+        # 4. Безопасный разбор ответа (Защита от 'str' object has no attribute 'choices')
+        ai_text = ""
+        if isinstance(completion, str):
+            ai_text = completion
+        elif hasattr(completion, 'choices') and completion.choices:
+            ai_text = completion.choices.message.content
+        elif isinstance(completion, dict) and 'choices' in completion:
+            try:
+                ai_text = completion['choices']['message']['content']
+            except (KeyError, TypeError):
+                ai_text = str(completion)
+        else:
+            ai_text = str(completion)
         
+        # 5. Обработка и отправка результата
         if ai_text:
-            # 4. Сохраняем ответ ИИ в базу данных
             save_message(user_id, "assistant", ai_text)
             
             if len(ai_text) > 4000:
                 ai_text = ai_text[:4000] + "\n\n[Текст обрезан из-за лимитов Telegram]"
             bot.reply_to(message, ai_text)
         else:
-            bot.reply_to(message, "Нейросеть вернула пустой ответ.")
+            bot.reply_to(message, "Нейросеть вернула пустой или некорректный ответ.")
             
     except Exception as e:
-        print(f"Произошла ошибка при запросе к ИИ: {e}")
+        error_msg = f"Произошла ошибка при запросе к ИИ: {e}"
+        print(error_msg)
         bot.reply_to(message, f"Ошибка ИИ: {str(e)}")
 
 if __name__ == "__main__":
-    # Инициализируем таблицу в базе данных перед запуском бота
     print("Инициализация базы данных...")
-    init_db()
-    print("Бот со сбором датасета успешно запущен!")
+    try:
+        init_db()
+        print("База данных готова.")
+    except Exception as db_err:
+        print(f"Критическая ошибка инициализации БД: {db_err}")
+        
+    print("Бот успешно запущен!")
     bot.infinity_polling(skip_pending=True)
