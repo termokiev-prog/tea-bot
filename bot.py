@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import telebot
+import time
 from threading import Thread
 from flask import Flask
 
@@ -38,11 +39,11 @@ def ask_ai(message):
             headers={
                 "Authorization": f"Bearer {OPENROUTER_KEY}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://render.com", # Обязательно для OpenRouter
-                "X-Title": "Telegram AI Bot"         # Обязательно для OpenRouter
+                "HTTP-Referer": "https://render.com",
+                "X-Title": "Telegram AI Bot"
             },
             data=json.dumps({
-                "model": "meta-llama/llama-3-8b-instruct:free", # Более стабильная бесплатная модель
+                "model": "meta-llama/llama-3-8b-instruct:free",
                 "messages": [
                     {"role": "user", "content": message.text}
                 ]
@@ -50,9 +51,8 @@ def ask_ai(message):
             timeout=20
         )
         
-        # Если сервер ответил ошибкой (например, 401 или 403)
         if response.status_code != 200:
-            bot.reply_to(message, f"Ошибка OpenRouter (Код {response.status_code}): Проверьте правильность API-ключа в Render.")
+            bot.reply_to(message, f"Ошибка OpenRouter (Код {response.status_code}): Проверьте API-ключ.")
             return
 
         result = response.json()
@@ -63,11 +63,23 @@ def ask_ai(message):
         elif 'error' in result:
             bot.reply_to(message, f"Ошибка ИИ: {result['error'].get('message', 'Неизвестная ошибка')}")
         else:
-            bot.reply_to(message, "Сервер ИИ вернул пустой ответ. Возможно, закончились лимиты.")
+            bot.reply_to(message, "Сервер ИИ вернул пустой ответ.")
             
     except Exception as e:
         bot.reply_to(message, f"Ошибка обработки: {str(e)}")
 
 if __name__ == "__main__":
+    # 1. Сначала запускаем веб-сервер для Render
     Thread(target=run).start()
-    bot.infinity_polling()
+    
+    # 2. Магия против конфликтов: очищаем старые вебхуки и подключения Telegram
+    print("Очистка старых подключений Telegram...")
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except Exception as e:
+        print(f"Предупреждение при очистке: {e}")
+    
+    print("Бот успешно запускается...")
+    # Запускаем опрос, пропуская старые накопившиеся сообщения (вызовы во время конфликта)
+    bot.infinity_polling(skip_pending=True)
