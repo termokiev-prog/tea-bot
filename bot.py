@@ -3,7 +3,7 @@ import telebot
 import requests
 import json
 
-# Получаем ключи из настроек сервера
+# Получаем ключи из настроек сервера Render
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
 
@@ -11,13 +11,13 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 def ask_ai(user_message):
     try:
-        url = "https://openrouter.ai/api/v1/chat/completions"
+        url = "https://openrouter.ai"
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json"
         }
         data = {
-            "model": "google/gemini-2.5-flash", # Бесплатная и умная модель ИИ
+            "model": "google/gemini-2.5-flash:free", # Полностью бесплатная модель ИИ
             "messages": [
                 {"role": "system", "content": "Ты полезный ИИ-агент и умный личный ассистент. Отвечай кратко и по делу."},
                 {"role": "user", "content": user_message}
