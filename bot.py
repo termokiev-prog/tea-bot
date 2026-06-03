@@ -16,7 +16,6 @@ def run():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-# Проверяем оба варианта имени ключа на всякий случай
 OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_KEY')
 
 bot = telebot.TeleBot(TOKEN)
@@ -38,10 +37,12 @@ def ask_ai(message):
             url="https://openrouter.ai",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_KEY}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://render.com", # Обязательно для OpenRouter
+                "X-Title": "Telegram AI Bot"         # Обязательно для OpenRouter
             },
             data=json.dumps({
-                "model": "google/gemma-2-9b-it:free",
+                "model": "meta-llama/llama-3-8b-instruct:free", # Более стабильная бесплатная модель
                 "messages": [
                     {"role": "user", "content": message.text}
                 ]
@@ -49,19 +50,23 @@ def ask_ai(message):
             timeout=20
         )
         
+        # Если сервер ответил ошибкой (например, 401 или 403)
+        if response.status_code != 200:
+            bot.reply_to(message, f"Ошибка OpenRouter (Код {response.status_code}): Проверьте правильность API-ключа в Render.")
+            return
+
         result = response.json()
         
-        # Защита от ошибок в ответе ИИ
         if 'choices' in result and len(result['choices']) > 0:
-            ai_text = result['choices'][0]['message']['content']
+            ai_text = result['choices']['message']['content']
             bot.reply_to(message, ai_text)
         elif 'error' in result:
-            bot.reply_to(message, f"Ошибка от OpenRouter: {result['error'].get('message', 'Неизвестная ошибка')}")
+            bot.reply_to(message, f"Ошибка ИИ: {result['error'].get('message', 'Неизвестная ошибка')}")
         else:
-            bot.reply_to(message, f"Неверный ответ сервера ИИ. Проверьте баланс аккаунта OpenRouter.")
+            bot.reply_to(message, "Сервер ИИ вернул пустой ответ. Возможно, закончились лимиты.")
             
     except Exception as e:
-        bot.reply_to(message, f"Ошибка соединения: {str(e)}")
+        bot.reply_to(message, f"Ошибка обработки: {str(e)}")
 
 if __name__ == "__main__":
     Thread(target=run).start()
