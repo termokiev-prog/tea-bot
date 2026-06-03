@@ -5,7 +5,6 @@ import telebot
 from threading import Thread
 from flask import Flask
 
-# 1. Настройка веб-сервера для Render
 app = Flask('')
 
 @app.route('/')
@@ -16,24 +15,24 @@ def run():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-
-# 2. Настройка Телеграм-бота и ключей
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
+# Проверяем оба варианта имени ключа на всякий случай
+OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_KEY')
 
 bot = telebot.TeleBot(TOKEN)
 
-# Команда /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Я твой ИИ-помощник. Задай мне любой вопрос или попроси что-то посчитать!")
+    bot.reply_to(message, "Привет! Задай мне любой вопрос!")
 
-# Отправка запроса в искусственный интеллект OpenRouter
 @bot.message_handler(func=lambda message: True)
 def ask_ai(message):
-    # Отправляем пользователю статус, что бот думает
     bot.send_chat_action(message.chat.id, 'typing')
     
+    if not OPENROUTER_KEY:
+        bot.reply_to(message, "Ошибка: В Render не добавлен ключ OPENROUTER_API_KEY")
+        return
+
     try:
         response = requests.post(
             url="https://openrouter.ai",
@@ -42,27 +41,28 @@ def ask_ai(message):
                 "Content-Type": "application/json"
             },
             data=json.dumps({
-                "model": "google/gemma-2-9b-it:free", # Используем бесплатную и быструю модель ИИ
+                "model": "google/gemma-2-9b-it:free",
                 "messages": [
                     {"role": "user", "content": message.text}
                 ]
-            })
+            }),
+            timeout=20
         )
         
-        # Разбираем ответ от нейросети
         result = response.json()
-        ai_text = result['choices'][0]['message']['content']
-        bot.reply_to(message, ai_text)
         
+        # Защита от ошибок в ответе ИИ
+        if 'choices' in result and len(result['choices']) > 0:
+            ai_text = result['choices'][0]['message']['content']
+            bot.reply_to(message, ai_text)
+        elif 'error' in result:
+            bot.reply_to(message, f"Ошибка от OpenRouter: {result['error'].get('message', 'Неизвестная ошибка')}")
+        else:
+            bot.reply_to(message, f"Неверный ответ сервера ИИ. Проверьте баланс аккаунта OpenRouter.")
+            
     except Exception as e:
-        print(f"Ошибка ИИ: {e}")
-        bot.reply_to(message, "Извини, возникла ошибка при подключении к ИИ-мозгу. Попробуй еще раз чуть позже.")
+        bot.reply_to(message, f"Ошибка соединения: {str(e)}")
 
-
-# 3. Запуск сервера и бота
 if __name__ == "__main__":
-    print("Запуск веб-сервера...")
     Thread(target=run).start()
-    
-    print("Бот запускается...")
     bot.infinity_polling()
