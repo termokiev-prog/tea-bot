@@ -1,53 +1,57 @@
 import os
 import telebot
-from openai import OpenAI
+import requests
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
 
 bot = telebot.TeleBot(TOKEN)
 
-# Инициализируем клиент со строгим v1 URL
-ai_client = OpenAI(
-    base_url="https://openrouter.ai",
-    api_key=OPENROUTER_KEY,
-)
-
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Бот запущен в финальном стабильном режиме. Задай мне любой вопрос!")
+    bot.reply_to(message, "Привет! Бот полностью перенастроен через прямые запросы. Задай мне любой вопрос!")
 
 @bot.message_handler(func=lambda message: True)
 def ask_ai(message):
     bot.send_chat_action(message.chat.id, 'typing')
+    
+    # Прямой URL и заголовки для OpenRouter
+    url = "https://openrouter.ai"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_KEY}",
+        "HTTP-Referer": "https://render.com",
+        "X-Title": "Telegram AI Bot",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "meta-llama/llama-3-8b-instruct:free",
+        "messages": [{"role": "user", "content": message.text}]
+    }
+    
     try:
-        completion = ai_client.chat.completions.create(
-            extra_headers={
-                "HTTP-Referer": "https://render.com",
-                "X-Title": "Telegram Bot Stable",
-            },
-            model="meta-llama/llama-3-8b-instruct:free",
-            messages=[{"role": "user", "content": message.text}],
-            timeout=25
-        )
+        # Отправляем прямой POST запрос к API
+        response = requests.post(url, headers=headers, json=data, timeout=25)
         
-        # Защита от ответов-строк (когда OpenRouter возвращает ошибку в виде текста или HTML)
-        if isinstance(completion, str):
-            # Обрезаем до 200 символов, чтобы не поймать ошибку HTTP 431 от Telegram
-            clean_error = completion[:200]
-            bot.reply_to(message, f"⚠️ От API получен текстовый сбой:\n`{clean_error}`", parse_mode="Markdown")
+        # Если API вернул ошибку авторизации или лимитов (не 200 OK)
+        if response.status_code != 200:
+            bot.reply_to(
+                message, 
+                f"⚠️ Сбой OpenRouter (Код {response.status_code}):\n{response.text[:200]}"
+            )
             return
-
-        # Если пришел нормальный объект ответа
-        if hasattr(completion, 'choices') and completion.choices:
-            ai_text = completion.choices[0].message.content
-            bot.reply_to(message, ai_text if ai_text else "Нейросеть прислала пустой ответ.")
+            
+        # Корректно разбираем JSON
+        result = response.json()
+        if 'choices' in result and len(result['choices']) > 0:
+            ai_text = result['choices'][0]['message']['content']
+            bot.reply_to(message, ai_text)
         else:
-            bot.reply_to(message, "Не удалось распознать структуру ответа OpenRouter.")
+            bot.reply_to(message, f"Необычный формат ответа: {str(result)[:200]}")
             
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка запроса: {str(e)[:200]}")
+        bot.reply_to(message, f"❌ Ошибка соединения: {str(e)[:200]}")
 
 if __name__ == "__main__":
-    print("Бот успешно запущен!")
+    print("Бот на прямых запросах успешно запущен!")
     bot.infinity_polling(skip_pending=True)
