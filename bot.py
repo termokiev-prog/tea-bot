@@ -34,25 +34,31 @@ def ask_ai(message):
         return
 
     try:
+        # Строго проверяем HTTPS адрес, чтобы исключить ошибку 405
+        api_url = "https://openrouter.ai"
+        
         response = requests.post(
-            url="https://openrouter.ai",
+            url=api_url,
             headers={
-                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Authorization": f"Bearer {OPENROUTER_KEY.strip()}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://render.com",
-                "X-Title": "Telegram AI Bot"
+                "X-Title": "Telegram Bot"
             },
             data=json.dumps({
-                "model": "meta-llama/llama-3-8b-instruct:free",
+                "model": "gryphe/mythomax-l2-13b:free", 
                 "messages": [
                     {"role": "user", "content": message.text}
                 ]
             }),
-            timeout=20
+            timeout=25
         )
         
-        if response.status_code != 200:
-            bot.reply_to(message, f"Ошибка OpenRouter (Код {response.status_code}): Проверьте API-ключ.")
+        if response.status_code == 405:
+            bot.reply_to(message, "Ошибка 405: Сервер OpenRouter отклонил формат запроса. Проверьте правильность вашего API-ключа.")
+            return
+        elif response.status_code != 200:
+            bot.reply_to(message, f"Ошибка OpenRouter (Код {response.status_code}). Ответ: {response.text[:100]}")
             return
 
         result = response.json()
@@ -61,25 +67,22 @@ def ask_ai(message):
             ai_text = result['choices']['message']['content']
             bot.reply_to(message, ai_text)
         elif 'error' in result:
-            bot.reply_to(message, f"Ошибка ИИ: {result['error'].get('message', 'Неизвестная ошибка')}")
+            bot.reply_to(message, f"Ошибка от OpenRouter: {result['error'].get('message', 'Неизвестная ошибка')}")
         else:
-            bot.reply_to(message, "Сервер ИИ вернул пустой ответ.")
+            bot.reply_to(message, "Сервер ИИ вернул пустой ответ. Проверьте баланс на OpenRouter.")
             
     except Exception as e:
         bot.reply_to(message, f"Ошибка обработки: {str(e)}")
 
 if __name__ == "__main__":
-    # 1. Сначала запускаем веб-сервер для Render
     Thread(target=run).start()
     
-    # 2. Магия против конфликтов: очищаем старые вебхуки и подключения Telegram
     print("Очистка старых подключений Telegram...")
     try:
         bot.remove_webhook()
         time.sleep(1)
     except Exception as e:
-        print(f"Предупреждение при очистке: {e}")
-    
+        pass
+        
     print("Бот успешно запускается...")
-    # Запускаем опрос, пропуская старые накопившиеся сообщения (вызовы во время конфликта)
     bot.infinity_polling(skip_pending=True)
