@@ -17,7 +17,7 @@ def ask_ai(user_message):
             "Content-Type": "application/json"
         }
         data = {
-            "model": "google/gemini-2.5-flash:free", # Полностью бесплатная модель ИИ
+            "model": "google/gemini-2.5-flash:free",  # Бесплатная модель ИИ
             "messages": [
                 {"role": "system", "content": "Ты полезный ИИ-агент и умный личный ассистент. Отвечай кратко и по делу."},
                 {"role": "user", "content": user_message}
