@@ -2,7 +2,6 @@ import os
 import telebot
 from openai import OpenAI
 
-# Берутся чистые переменные без ограничений хостинга
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
 
@@ -15,7 +14,7 @@ ai_client = OpenAI(
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Я наконец-то запущен и готов к работе. Задай мне любой вопрос!")
+    bot.reply_to(message, "Привет! Я запущен на Railway и готов к работе. Задай мне любой вопрос!")
 
 @bot.message_handler(func=lambda message: True)
 def ask_ai(message):
