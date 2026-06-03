@@ -12,7 +12,7 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 # Инициализация бота и AI клиента
 bot = telebot.TeleBot(TOKEN)
 ai_client = OpenAI(
-    base_url="https://openrouter.ai",
+    base_url="https://openrouter/api/v1",
     api_key=OPENROUTER_KEY,
 )
 
