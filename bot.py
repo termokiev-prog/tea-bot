@@ -10,33 +10,59 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Бот успешно работает и принимает порт!"
+    return "Бот с ИИ успешно работает!"
 
 def run():
-    # Получаем порт от Render или используем 10000 по умолчанию
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# 2. Настройка самого Телеграм-бота
-TOKEN = os.environ.get('TELEGRAM_TOKEN') 
+# 2. Настройка Телеграм-бота и ключей
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+OPENROUTER_KEY = os.environ.get('OPENROUTER_API_KEY')
+
 bot = telebot.TeleBot(TOKEN)
 
 # Команда /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Я успешно запущен на сервере Render!")
+    bot.reply_to(message, "Привет! Я твой ИИ-помощник. Задай мне любой вопрос или попроси что-то посчитать!")
 
-# Обработка любого текстового сообщения
+# Отправка запроса в искусственный интеллект OpenRouter
 @bot.message_handler(func=lambda message: True)
-def echo_all(message):
-    bot.reply_to(message, f"Вы написали: {message.text}")
+def ask_ai(message):
+    # Отправляем пользователю статус, что бот думает
+    bot.send_chat_action(message.chat.id, 'typing')
+    
+    try:
+        response = requests.post(
+            url="https://openrouter.ai",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps({
+                "model": "google/gemma-2-9b-it:free", # Используем бесплатную и быструю модель ИИ
+                "messages": [
+                    {"role": "user", "content": message.text}
+                ]
+            })
+        )
+        
+        # Разбираем ответ от нейросети
+        result = response.json()
+        ai_text = result['choices'][0]['message']['content']
+        bot.reply_to(message, ai_text)
+        
+    except Exception as e:
+        print(f"Ошибка ИИ: {e}")
+        bot.reply_to(message, "Извини, возникла ошибка при подключении к ИИ-мозгу. Попробуй еще раз чуть позже.")
 
 
-# 3. Правильный запуск: сначала сервер, потом бот
+# 3. Запуск сервера и бота
 if __name__ == "__main__":
-    print("Запуск веб-сервера для Render...")
+    print("Запуск веб-сервера...")
     Thread(target=run).start()
     
-    print("Бот успешно запускается...")
+    print("Бот запускается...")
     bot.infinity_polling()
