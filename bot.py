@@ -11,7 +11,7 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 def ask_ai(user_message):
     try:
-        url = "https://openrouter.ai"
+        url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json"
