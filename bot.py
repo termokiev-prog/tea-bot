@@ -1,10 +1,11 @@
 import os
-import telebot
-import requests
 from threading import Thread
+import telebot
 from flask import Flask
+from google import genai
+from google.genai import types
 
-# Создаем веб-сервер заглушку для прохождения проверок портов Render
+# 1. Создаем веб-сервер заглушку для Render
 app = Flask('')
 
 @app.route('/')
@@ -15,59 +16,53 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# Получение токенов из переменных окружения
+# 2. Инициализация токенов и клиентов
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-GEMINI_KEY = os.environ.get('OPENROUTER_API_KEY')
+# Официальный SDK автоматически ищет переменную GEMINI_API_KEY
+gemini_client = genai.Client() 
 
 bot = telebot.TeleBot(TOKEN)
 
+# 3. Обработчики команд Telegram
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Бот успешно запущен на стабильном API Google Gemini. Задай мне любой вопрос!")
+    bot.reply_to(
+        message, 
+        "Привет! Бот успешно запущен на стабильном API Google Gemini. Задай мне любой вопрос!"
+    )
 
 @bot.message_handler(func=lambda message: True)
 def ask_ai(message):
+    # Показываем пользователю, что бот "печатает"
     bot.send_chat_action(message.chat.id, 'typing')
     
-    # Исправлено: добавлен четкий знак вопроса перед параметром key
-    url = f"https://googleapis.com{GEMINI_KEY}"
-    headers = {"Content-Type": "application/json"}
-    
-    data = {
-        "contents": [{
-            "parts": [{"text": message.text}]
-        }]
-    }
-    
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=25)
+        # Запрос к актуальной модели Gemini 2.5 Flash через официальный SDK
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=message.text,
+        )
         
-        if response.status_code != 200:
-            bot.reply_to(message, f"⚠️ Сбой Gemini API (Код {response.status_code}):\n`{response.text[:200]}`", parse_mode="Markdown")
-            return
+        # Проверяем, что ответ вообще пришел
+        if response.text:
+            ai_text = response.text
             
-        result = response.json()
-        
-        # Безопасный пошаговый разбор структуры ответа от Google Gemini
-        if 'candidates' in result and len(result['candidates']) > 0:
-            first_candidate = result['candidates'][0]
-            if 'content' in first_candidate and 'parts' in first_candidate['content'] and len(first_candidate['content']['parts']) > 0:
-                ai_text = first_candidate['content']['parts'][0]['text']
+            # Защита от лимитов Telegram (макс. 4096 символов)
+            if len(ai_text) > 4000:
+                ai_text = ai_text[:4000] + "\n\n[Текст обрезан из-за лимитов Telegram]"
                 
-                # Защита от слишком длинных сообщений в Telegram
-                if len(ai_text) > 4000:
-                    ai_text = ai_text[:4000] + "\n\n[Текст обрезан из-за лимитов]"
-                bot.reply_to(message, ai_text)
-                return
-                
-        bot.reply_to(message, f"⚠️ Не удалось прочитать ответ ИИ. Сырые данные:\n`{str(result)[:200]}`", parse_mode="Markdown")
+            bot.reply_to(message, ai_text)
+        else:
+            bot.reply_to(message, "⚠️ Ошибка: ИИ вернул пустой ответ (возможно, сработали фильтры безопасности).")
             
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка соединения или парсинга: {str(e)[:200]}")
+        # Логируем ошибку, чтобы ты видел её в консоли Render
+        print(f"Ошибка при запросе к Gemini: {e}")
+        bot.reply_to(message, f"❌ Произошла ошибка при обращении к Gemini: {str(e)[:200]}")
 
+# 4. Точка входа для запуска
 if __name__ == "__main__":
-    # Запуск Flask в отдельном потоке для Render
-    print("Запуск веб-сервера Flask...")
+    print("Запуск веб-сервера Flask для Render...")
     t = Thread(target=run_flask)
     t.start()
     
