@@ -1,5 +1,4 @@
-requests
-pyTelegramBotAPI
-flask
-openai
-psycopg2-binary
+pyTelegramBotAPI==4.26.0
+google-genai==0.1.1
+flask==3.0.3
+requests==2.32.3
