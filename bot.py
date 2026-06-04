@@ -1,70 +1,66 @@
 import os
-from threading import Thread
 import telebot
 from flask import Flask
+from threading import Thread
 from google import genai
-from google.genai import types
 
-# 1. Создаем веб-сервер заглушку для Render
+# 1. Настройка Flask-сервера
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Бот на Gemini онлайн и работает!"
+    return "Бот онлайн!"
+
+@app.route('/health')
+def health():
+    return "OK", 200
 
 def run_flask():
+    # Принудительно берем порт, который требует Render
     port = int(os.environ.get("PORT", 10000))
+    print(f"Запуск Flask на порту {port}...")
     app.run(host='0.0.0.0', port=port)
 
-# 2. Инициализация токенов и клиентов
+# 2. Инициализация Gemini и Telegram
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-# Официальный SDK автоматически ищет переменную GEMINI_API_KEY
-gemini_client = genai.Client() 
+gemini_client = genai.Client() # Автоматически подхватит GEMINI_API_KEY
 
 bot = telebot.TeleBot(TOKEN)
 
-# 3. Обработчики команд Telegram
+# 3. Логика Telegram-бота
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(
-        message, 
-        "Привет! Бот успешно запущен на стабильном API Google Gemini. Задай мне любой вопрос!"
-    )
+    bot.reply_to(message, "Привет! Бот успешно запущен на стабильном API Google Gemini. Задай мне любой вопрос!")
 
 @bot.message_handler(func=lambda message: True)
 def ask_ai(message):
-    # Показываем пользователю, что бот "печатает"
     bot.send_chat_action(message.chat.id, 'typing')
-    
     try:
-        # Запрос к актуальной модели Gemini 2.5 Flash через официальный SDK
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash',
             contents=message.text,
         )
-        
-        # Проверяем, что ответ вообще пришел
         if response.text:
             ai_text = response.text
-            
-            # Защита от лимитов Telegram (макс. 4096 символов)
             if len(ai_text) > 4000:
-                ai_text = ai_text[:4000] + "\n\n[Текст обрезан из-за лимитов Telegram]"
-                
+                ai_text = ai_text[:4000] + "\n\n[Текст обрезан из-за лимитов]"
             bot.reply_to(message, ai_text)
         else:
-            bot.reply_to(message, "⚠️ Ошибка: ИИ вернул пустой ответ (возможно, сработали фильтры безопасности).")
-            
+            bot.reply_to(message, "⚠️ ИИ вернул пустой ответ.")
     except Exception as e:
-        # Логируем ошибку, чтобы ты видел её в консоли Render
-        print(f"Ошибка при запросе к Gemini: {e}")
-        bot.reply_to(message, f"❌ Произошла ошибка при обращении к Gemini: {str(e)[:200]}")
+        print(f"Ошибка Gemini: {e}")
+        bot.reply_to(message, f"❌ Ошибка: {str(e)[:200]}")
 
-# 4. Точка входа для запуска
-if __name__ == "__main__":
-    print("Запуск веб-сервера Flask для Render...")
-    t = Thread(target=run_flask)
-    t.start()
-    
-    print("Бот на Gemini успешно запущен!")
+def run_bot():
+    print("Запуск Telegram-бота...")
     bot.infinity_polling(skip_pending=True)
+
+# 4. Точка входа
+if __name__ == "__main__":
+    # Запускаем бота в отдельном потоке
+    bot_thread = Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # Главным процессом пускаем Flask, чтобы Render СРАЗУ видел открытый порт
+    run_flask()
