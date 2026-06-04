@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: n8n-ai-platform
+    env: docker
+    plan: starter
+    region: frankfurt
+    envVars:
+      - key: N8N_SECURE_COOKIE
+        value: "false"
+      - key: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
+        value: "true"
+      - key: NODE_ENV
+        value: production
+    disk:
+      name: n8n-storage
+      mountPath: /home/node/.n8n
+      sizeGB: 1
